@@ -396,6 +396,11 @@ class Database {
           auto ptr = (const char *)sqlite3_column_text(stmt, idx);
           auto len = sqlite3_column_bytes(stmt, idx);
           arg = arg_t(ptr, len);
+        } else if constexpr (std::is_same_v<sqlite::blob, arg_t> ||
+                             std::is_same_v<sqlite::blob_view, arg_t>) {
+          auto ptr = (const char *)sqlite3_column_blob(stmt, idx);
+          auto len = sqlite3_column_bytes(stmt, idx);
+          arg = arg_t(ptr, len);
         } else if constexpr (std::is_same_v<std::nullopt_t, arg_t>) {
           ;
         } else if constexpr (detail::is_std_optional_type<arg_t>) {
