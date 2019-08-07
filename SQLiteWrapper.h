@@ -31,6 +31,11 @@ namespace sqlite {
 
 namespace detail {
 
+// Given a concrete function type T:
+//   get_fn_info<T>::ret_type is the return type
+//   get_fn_info<T>::num_args is the number of arguments to the function
+//   get_fn_info<T>::arg_type<i> is the type of the i'th argument
+
 template <typename T>
 struct get_fn_info {
   static_assert(!std::is_same_v<T,T>);
@@ -45,6 +50,8 @@ struct get_fn_info<R(* const)(As...)> {
   static constexpr int num_args = std::tuple_size_v<arg_types>;
 };
 
+// If THING is invocable, invoke it and return the result, otherwise return
+// THING itself.
 inline constexpr auto maybe_invoke = [] (auto &&thing) -> decltype(auto) {
   if constexpr (std::is_invocable_v<decltype(thing)>) {
     return thing();
@@ -53,18 +60,35 @@ inline constexpr auto maybe_invoke = [] (auto &&thing) -> decltype(auto) {
   }
 };
 
+// This mutex guards against the one-time configuration of SQLite that is
+// performed before any connection is made to the database.
 inline std::mutex sqlite3_config_mutex;
+
+// This is set to true once the one-time configuration of SQLite gets
+// performed.
 inline bool sqlite3_configured = false;
 
+// This is the error log callback installed by the wrapper.
+//
+// TODO(ppalka): Make the choice of error log callback configurable.
 inline void sqlite_error_log_callback(void *, int err_code, const char *msg) {
   std::cerr << "SQLite error (" << err_code << "): " << msg << std::endl;
 }
 
 } // namespace detail
 
+// Define an explicit specialization `user_serialize_fn<T>` or perhaps
+// `user_serialize_fn<T, std::enable_if_t<...>>` if you want to be able to pass
+// objects of type `T` to `query()` invocations.  The specialization should be
+// a function that takes as argument a `T` object and whose return type is one
+// which is already convertible e.g. an integral type, an
+// `std::optional<std::string>`, etc.
+
 template <typename T, typename = void>
 constexpr auto user_serialize_fn = nullptr;
 
+// This explicit specialization allows binding `std::optional<T>` when `T` is a
+// convertible user type.
 template <typename T>
 constexpr auto user_serialize_fn<std::optional<T>,
                                  std::enable_if_t<user_serialize_fn<T> != nullptr>>
@@ -73,25 +97,47 @@ constexpr auto user_serialize_fn<std::optional<T>,
                 : std::nullopt);
   };
 
+// Define an explicit specialization `user_deserialize_fn<T>` or perhaps
+// `user_deserialize_fn<T, std::enable_if_t<...>>` if you want to be able
+// convert SQLite result values to `T` objects, allowing you to pass objects of
+// type `T` to QueryResult invocations.  The specialization should be a
+// function whose argument type is something that we know how to convert an
+// SQLite value to, and whose return type is an object of type `T`.
 template <typename T, typename = void>
 constexpr auto user_deserialize_fn = nullptr;
 
-struct blob : public std::string {
+
+// This class behaves just like `std::string`, except that we bind values of
+// this type as BLOBs rather than TEXT.
+class blob : public std::string {
+ public:
   template <typename... Ts>
   blob(Ts &&...args) : std::string(std::forward<Ts>(args)...) { }
 };
 
-struct blob_view : public std::string_view {
+// This class behaves just like `std::string_view`, except that we bind values
+// of this type as BLOBs rather than TEXT.
+class blob_view : public std::string_view {
+ public:
   template <typename... Ts>
   blob_view(Ts &&...args) : std::string_view(std::forward<Ts>(args)...) { }
 };
 
-struct error {
+// The class of SQLite errors.  When an exceptional error is encountered, we
+// throw an exception of this type.
+class error : public std::exception {
+ public:
   int err_code;
+  error (int code) : err_code(code) { }
 };
 
 template <const auto &db_name>
 class Database {
+ public:
+  // This hook is called every time a connection is made, taking as argument
+  // the database handle corresponding to the new connection.
+  static inline std::function<void(sqlite3 *)> post_connection_hook;
+
  private:
   struct Connection {
     sqlite3 *db_handle;
@@ -150,10 +196,6 @@ class Database {
     return object;
   }
 
- public:
-  static inline std::function<void(sqlite3 *)> post_connection_hook;
-
- private:
   // The `PreparedStmtCache` is a cache of available prepared statements for
   // reuse corresponding to the query given by `query_str`.
   template <const auto &query_str>
@@ -227,8 +269,14 @@ class Database {
  public:
   class QueryResult;
 
+  // Prepare or reuse a statement corresponding to the query string QUERY_STR,
+  // binding BIND_ARGS to the parameters ?1, ?2, ..., of the statement.
+  // Returns a QueryResult object, with which one can step through the results
+  // returned by the query.
   template <const auto &query_str, typename... Ts>
-  static QueryResult query(const Ts &...args) {
+  static QueryResult query(const Ts &...bind_args) {
+    // If we need to use any user-defined conversion functions, perform the
+    // conversions and recursively call query() with the converted arguments.
     if constexpr (((user_serialize_fn<std::decay_t<Ts>> != nullptr) || ...)) {
       auto maybe_serialize = [] (const auto &arg) -> decltype(auto) {
         using arg_t = std::decay_t<decltype(arg)>;
@@ -238,7 +286,7 @@ class Database {
           return arg;
         }
       };
-      return query<query_str>(maybe_serialize(args)...);
+      return query<query_str>(maybe_serialize(bind_args)...);
     } else {
       sqlite3_stmt *stmt = PreparedStmtCache<query_str>::get_tls();
 
@@ -276,12 +324,17 @@ class Database {
 
       };
       (void)bind_dispatcher;
-      (bind_dispatcher(args, bind_dispatcher), ...);
+      (bind_dispatcher(bind_args, bind_dispatcher), ...);
 
       return QueryResult(stmt, &PreparedStmtCache<query_str>::put_tls);
     }
   }
 
+  // QueryResult corresponds to the results of a query executed by query().
+  // Results can be stepped through row-by-row by invoking the QueryResult
+  // directly.  When a QueryResult gets destroyed, the prepared statement is
+  // cleaned up and gets placed into the prepared-statement cache it came from
+  // for later reuse.
   class QueryResult {
    public:
     QueryResult() : stmt(nullptr) { }
@@ -306,10 +359,15 @@ class Database {
       put_cb(stmt);
     }
 
+    // Returns the SQLite result code of the most recent call to sqlite3_step()
+    // on the prepared statement.
     int resultCode(void) {
       return ret;
     }
 
+    // Step through a row of results, binding the columns of the current row to
+    // ARGS in order.  If there are no more rows, returns false.  Otherwise,
+    // returns true.
     template <typename... Ts>
     bool operator()(Ts &&...args) {
       if (static_cast<int>(sizeof...(args)) > sqlite3_column_count(stmt)) {
@@ -382,11 +440,13 @@ class Database {
     friend class Database<db_name>;
   };
 
+  // Begin a SQLite transaction.
   static void beginTransaction(void) {
     static const char begin_transaction_query[] = "begin transaction";
     query<begin_transaction_query>();
   }
 
+  // Commit the active SQLite transaction.
   static void commit(void) {
     static const char commit_transaction_query[] = "commit transaction";
     query<commit_transaction_query>();
