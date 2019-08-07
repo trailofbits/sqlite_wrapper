@@ -123,12 +123,16 @@ auto fetch_row = db::query<my_select_query>(5);
 ...
 ```
 
-### ... bind a BLOB parameter?
+### ... bind BLOBs?
 
-Use the `sqlite::blob` and `sqlite::blob_view` data types, which are BLOB
-analogues of `std::string` and `std::string_view`:
+Use the `sqlite::blob` and `sqlite::blob_view` data types, which behave just
+like `std::string` and `std::string_view` respectively, but are bound to and
+from BLOB instead of as TEXT values:
 ```C++
 db::query<my_insert_query>(sqlite::blob{"hello"});
+auto fetch_row = db::query<my_select_query>();
+std::blob_view data;
+while (fetch_row(data)) {
+  ...
+}
 ```
-If you want to extract a BLOB value from a column, pretend it is a TEXT value and
-pass in an `std::string` or `std::string_view` object to the row fetcher.
