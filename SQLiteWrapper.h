@@ -50,6 +50,12 @@ struct get_fn_info<R(* const)(As...)> {
   static constexpr int num_args = std::tuple_size_v<arg_types>;
 };
 
+template <typename T>
+constexpr bool is_std_optional_type = false;
+
+template <typename T>
+constexpr bool is_std_optional_type<std::optional<T>> = true;
+
 // If THING is invocable, invoke it and return the result, otherwise return
 // THING itself.
 inline constexpr auto maybe_invoke = [] (auto &&thing) -> decltype(auto) {
@@ -310,7 +316,7 @@ class Database {
           sqlite3_bind_blob(stmt, idx, &arg[0], arg.size(), SQLITE_STATIC);
         } else if constexpr (std::is_same_v<std::nullopt_t, arg_t>) {
           sqlite3_bind_null(stmt, idx);
-        } else if constexpr (std::is_convertible_v<std::nullopt_t, arg_t>) {
+        } else if constexpr (detail::is_std_optional_type<arg_t>) {
           if (arg) {
             self(*arg, self);
             return;
@@ -392,7 +398,7 @@ class Database {
           arg = arg_t(ptr, len);
         } else if constexpr (std::is_same_v<std::nullopt_t, arg_t>) {
           ;
-        } else if constexpr (std::is_convertible_v<std::nullopt_t, arg_t>) {
+        } else if constexpr (detail::is_std_optional_type<arg_t>) {
           if (sqlite3_column_type(stmt, idx) == SQLITE_NULL) {
             arg.reset();
           } else {
