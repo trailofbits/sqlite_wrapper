@@ -26,9 +26,7 @@ constexpr auto sqlite::user_serialize_fn<noncopyable_string> =
 template<>
 constexpr auto sqlite::user_deserialize_fn<noncopyable_string> =
     [] (std::string str) -> noncopyable_string {
-      noncopyable_string ret;
-      std::swap(ret.str, str);
-      return ret;
+      return noncopyable_string{std::move(str)};
     };
 
 int main(void) {
@@ -49,9 +47,7 @@ int main(void) {
       [] (noncopyable_string str) -> noncopyable_string {
         std::ostringstream ss;
         ss << std::quoted(str.str);
-        noncopyable_string ret;
-        ret.str = ss.str();
-        return ret;
+        return noncopyable_string{ss.str()};
       });
 
 
