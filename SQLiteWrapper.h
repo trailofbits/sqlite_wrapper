@@ -142,6 +142,16 @@ namespace detail {
 
 inline std::vector<std::function<void(sqlite3 *)>> function_creation_hooks;
 
+template <typename T>
+struct decay_tuple_args {
+  static_assert(!std::is_same_v<T, T>);
+};
+
+template <typename... Ts>
+struct decay_tuple_args<std::tuple<Ts...>> {
+  using type = std::tuple<std::decay_t<Ts>...>;
+};
+
 } // namespace detail
 
 // Marshal the function `fn` to an equivalent SQL function named `fn_name`.
@@ -161,12 +171,8 @@ inline void createFunction(T fn) {
       return;
     }
 
-    auto decay_helper = [] (auto... args) {
-      return std::make_tuple(args...);
-    };
-    using arg_types_decayed =
-        decltype(std::apply(decay_helper,
-                            *(typename fn_info::arg_types *)nullptr));
+    using arg_types_decayed
+        = typename detail::decay_tuple_args<typename fn_info::arg_types>::type;
     arg_types_decayed arg_tuple;
 
     int idx = 0;
@@ -230,12 +236,13 @@ inline void createFunction(T fn) {
       } else if constexpr (std::is_same_v<std::nullopt_t, res_t>) {
         sqlite3_result_null(context);
       } else if constexpr (user_serialize_fn<res_t> != nullptr) {
-        self(user_serialize_fn<res_t>(res), self);
+        self(user_serialize_fn<res_t>(std::move(res)), self);
       } else {
         static_assert(!std::is_same_v<res_t, res_t>);
       }
     };
-    result_dispatcher(std::apply(saved_fn, arg_tuple), result_dispatcher);
+    result_dispatcher(std::apply(saved_fn, std::move(arg_tuple)),
+                      result_dispatcher);
   };
 
   detail::function_creation_hooks.emplace_back(
