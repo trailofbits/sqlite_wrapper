@@ -71,4 +71,7 @@ int main(void) {
     assert(str == R"("\"hello world\"")");
     assert(noncopy_str.str == R"("\"hello world\"")");
   }
+
+  static const char insert_noncopyable_query[] = "insert into test (a) values (?1)";
+  db::query<insert_noncopyable_query>(noncopyable_string{"hello world"});
 }

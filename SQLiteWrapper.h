@@ -400,14 +400,14 @@ class Database {
   // Returns a QueryResult object, with which one can step through the results
   // returned by the query.
   template <const auto &query_str, typename... Ts>
-  static QueryResult query(const Ts &...bind_args) {
+  static QueryResult query(Ts &&...bind_args) {
     // If we need to use any user-defined conversion functions, perform the
     // conversions and recursively call query() with the converted arguments.
     if constexpr (((user_serialize_fn<std::decay_t<Ts>> != nullptr) || ...)) {
-      auto maybe_serialize = [] (const auto &arg) -> decltype(auto) {
+      auto maybe_serialize = [] (auto &&arg) -> decltype(auto) {
         using arg_t = std::decay_t<decltype(arg)>;
         if constexpr (user_serialize_fn<arg_t> != nullptr) {
-          return user_serialize_fn<arg_t>(arg);
+          return user_serialize_fn<arg_t>(std::forward<arg_t>(arg));
         } else {
           return arg;
         }
