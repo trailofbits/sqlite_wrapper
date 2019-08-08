@@ -63,7 +63,7 @@ inline constexpr auto maybe_invoke = [] (auto &&thing) -> decltype(auto) {
   if constexpr (std::is_invocable_v<decltype(thing)>) {
     return thing();
   } else {
-    return thing;
+    return std::forward<decltype(thing)>(thing);
   }
 };
 

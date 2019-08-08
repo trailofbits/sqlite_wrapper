@@ -98,4 +98,6 @@ int main(void) {
     ;
   }
   assert(dummy_string.str == "dummy string");
+
+  sqlite::detail::maybe_invoke(noncopyable_string{"test"});
 }
