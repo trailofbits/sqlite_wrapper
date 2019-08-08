@@ -29,6 +29,16 @@ constexpr auto sqlite::user_deserialize_fn<noncopyable_string> =
       return noncopyable_string{std::move(str)};
     };
 
+struct string_wrapper {
+  std::string str;
+};
+
+template<>
+constexpr auto sqlite::user_serialize_fn<string_wrapper> =
+    [] (string_wrapper str) -> std::string {
+      return std::move(str.str);
+    };
+
 int main(void) {
   static const char increment_name[] = "increment";
   sqlite::createFunction<increment_name>([] (int x) {
@@ -50,10 +60,10 @@ int main(void) {
         return noncopyable_string{ss.str()};
       });
 
-  static std::string dummy_string = "dummy string";
+  static string_wrapper dummy_string{"dummy string"};
   static const char dummy_string_name[] = "dummy_string";
   sqlite::createFunction<dummy_string_name>(
-      [] (void) -> std::string & {
+      [] (void) -> string_wrapper & {
         return dummy_string;
       });
 
@@ -87,5 +97,5 @@ int main(void) {
   while (fetch_row(str2)) {
     ;
   }
-  assert(dummy_string == "dummy string");
+  assert(dummy_string.str == "dummy string");
 }

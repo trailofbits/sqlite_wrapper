@@ -244,7 +244,7 @@ inline void createFunction(T fn) {
       } else if constexpr (std::is_same_v<std::nullopt_t, res_t>) {
         sqlite3_result_null(context);
       } else if constexpr (user_serialize_fn<res_t> != nullptr) {
-        self(user_serialize_fn<res_t>(std::move(res)), self);
+        self(user_serialize_fn<res_t>(std::forward<decltype(res)>(res)), self);
       } else {
         static_assert(!std::is_same_v<res_t, res_t>);
       }
@@ -415,12 +415,12 @@ class Database {
       auto maybe_serialize = [] (auto &&arg) -> decltype(auto) {
         using arg_t = std::decay_t<decltype(arg)>;
         if constexpr (user_serialize_fn<arg_t> != nullptr) {
-          return user_serialize_fn<arg_t>(std::forward<arg_t>(arg));
+          return user_serialize_fn<arg_t>(std::forward<decltype(arg)>(arg));
         } else {
-          return arg;
+          return std::forward<decltype(arg)>(arg);
         }
       };
-      return query<query_str>(maybe_serialize(bind_args)...);
+      return query<query_str>(maybe_serialize(std::forward<Ts>(bind_args))...);
     } else {
       sqlite3_stmt *stmt = PreparedStmtCache<query_str>::get_tls();
 
@@ -458,7 +458,7 @@ class Database {
 
       };
       (void)bind_dispatcher;
-      (bind_dispatcher(bind_args, bind_dispatcher), ...);
+      (bind_dispatcher(std::forward<Ts>(bind_args), bind_dispatcher), ...);
 
       return QueryResult(stmt, &PreparedStmtCache<query_str>::put_tls);
     }
