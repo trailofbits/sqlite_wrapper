@@ -231,7 +231,7 @@ inline void createFunction(T fn) {
             auto str_to_delete = static_cast<res_t *>(object_to_delete);
             assert(bytes == str_to_delete->data());
             delete str_to_delete;
-            str_to_delete = nullptr;
+            object_to_delete = nullptr;
           };
         }
         if constexpr (std::is_same_v<std::string, res_t>) {
