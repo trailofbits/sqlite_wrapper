@@ -6,7 +6,32 @@
 static const char db_name[] = "example.db";
 using db = sqlite::Database<db_name>;
 
+int foo (int a) {
+  return a+1;
+}
+
+struct some_wrapper {
+  std::string_view inner;
+};
+
+template<>
+constexpr auto sqlite::user_deserialize_fn<some_wrapper> = [] (std::string_view x) {
+  return some_wrapper{x};
+};
+
+std::string bar (some_wrapper x) {
+  std::string y = std::string(x.inner);
+  y.append(" HI");
+  return y;
+}
+
 int main(void) {
+  static const char foo_name[] = "foo";
+  sqlite::createFunction<foo_name>([] (int a) { return a+1; });
+
+  static const char bar_name[] = "bar";
+  sqlite::createFunction<bar_name>(&bar);
+
   static const char create_table_query[]
     = R"(create table if not exists users (first_name text,
                                            last_name text,
@@ -24,7 +49,7 @@ int main(void) {
   db::query<insert_users_query>("James", "Smith", 20, "yahoo.com");
 
   static const char select_users_query[]
-    = R"(select first_name, last_name, age, website
+    = R"(select first_name, last_name, foo(age), bar(bar(website))
          from users where age = ?1 or substr(first_name, 1, 1) = ?2)";
   auto fetch_row = db::query<select_users_query>(29, "M");
 
