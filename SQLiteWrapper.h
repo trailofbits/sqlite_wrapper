@@ -26,6 +26,7 @@
 #include <vector>
 #include <cstring>
 #include <functional>
+#include <cassert>
 
 namespace sqlite {
 
@@ -42,7 +43,7 @@ struct get_fn_info {
 };
 
 template <typename R, typename... As>
-struct get_fn_info<R(* const)(As...)> {
+struct get_fn_info<R(*)(As...)> {
   using ret_type = R;
   using arg_types = std::tuple<As...>;
   template <unsigned i>
@@ -137,6 +138,114 @@ class error : public std::exception {
   error (int code) : err_code(code) { }
 };
 
+namespace detail {
+
+inline std::vector<std::function<void(sqlite3 *)>> function_creation_hooks;
+
+} // namespace detail
+
+// Marshal the function `fn` to an equivalent SQL function named `fn_name`.
+
+template <const char *fn_name, typename T>
+inline void createFunction(T fn) {
+  static decltype(fn) saved_fn = fn;
+  if (saved_fn != fn) {
+    throw error{SQLITE_ERROR};
+  }
+  using fn_info = detail::get_fn_info<decltype(+fn)>;
+  static void *object_to_delete;
+  auto wrapper_fn = [] (sqlite3_context *context, int argc,
+                        sqlite3_value **argv) {
+    if (argc != fn_info::num_args) {
+      sqlite3_result_null(context);
+      return;
+    }
+
+    auto decay_helper = [] (auto... args) {
+      return std::make_tuple(args...);
+    };
+    using arg_types_decayed =
+        decltype(std::apply(decay_helper,
+                            *(typename fn_info::arg_types *)nullptr));
+    arg_types_decayed arg_tuple;
+
+    int idx = 0;
+    auto value_dispatcher = [argv, &idx] (auto &arg, auto &self) {
+      using arg_t = std::decay_t<decltype(arg)>;
+      if constexpr (std::is_integral_v<arg_t>) {
+        arg = sqlite3_value_int64(argv[idx]);
+      } else if constexpr (std::is_same_v<std::string, arg_t> ||
+                           std::is_same_v<std::string_view, arg_t>) {
+        auto ptr = (const char *)sqlite3_value_text(argv[idx]);
+        auto len = sqlite3_value_bytes(argv[idx]);
+        arg = arg_t(ptr, len);
+      } else if constexpr (std::is_same_v<sqlite::blob, arg_t> ||
+                           std::is_same_v<sqlite::blob_view, arg_t>) {
+        auto ptr = (const char *)sqlite3_value_blob(argv[idx]);
+        auto len = sqlite3_value_bytes(argv[idx]);
+        arg = arg_t(ptr, len);
+      } else if constexpr (user_deserialize_fn<arg_t> != nullptr) {
+        auto *fn_ptr = +user_deserialize_fn<arg_t>;
+        using fn_info = detail::get_fn_info<decltype(fn_ptr)>;
+        using from_type = typename fn_info::template arg_type<0>;
+        std::decay_t<from_type> from_arg;
+        self(from_arg, self);
+        arg = fn_ptr(std::move(from_arg));
+        return;
+      } else {
+        static_assert(!std::is_same_v<arg_t, arg_t>);
+      }
+      idx++;
+    };
+
+    std::apply([&value_dispatcher] (auto &...args) {
+      (value_dispatcher(args, value_dispatcher), ...);
+    }, arg_tuple);
+
+    auto result_dispatcher = [context] (auto &&res, auto &self) {
+      using res_t = std::decay_t<decltype(res)>;
+      if constexpr (std::is_integral_v<res_t>) {
+        sqlite3_result_int64(context, res);
+      } else if constexpr (std::is_same_v<std::string_view, res_t>) {
+        sqlite3_result_text(context, &res[0], res.size(), SQLITE_STATIC);
+      } else if constexpr (std::is_same_v<sqlite::blob_view, res_t>) {
+        sqlite3_result_blob(context, &res[0], res.size(), SQLITE_STATIC);
+      } else if constexpr (std::is_same_v<std::string, res_t> ||
+                           std::is_same_v<sqlite::blob, res_t>) {
+        auto saved_str = new res_t(std::move(res));
+        object_to_delete = saved_str;
+        auto destructor = [] (void *bytes) {
+          auto str_to_delete = static_cast<res_t *>(object_to_delete);
+          assert(bytes == str_to_delete->data());
+          delete str_to_delete;
+          str_to_delete = nullptr;
+        };
+        if constexpr (std::is_same_v<std::string, res_t>) {
+          sqlite3_result_text(context, saved_str->data(), saved_str->size(),
+                              destructor);
+        } else {
+          sqlite3_result_blob(context, saved_str->data(), saved_str->size(),
+                              destructor);
+        }
+      } else if constexpr (std::is_same_v<std::nullopt_t, res_t>) {
+        sqlite3_result_null(context);
+      } else if constexpr (user_serialize_fn<res_t> != nullptr) {
+        self(user_serialize_fn<res_t>(res), self);
+      } else {
+        static_assert(!std::is_same_v<res_t, res_t>);
+      }
+    };
+    result_dispatcher(std::apply(saved_fn, arg_tuple), result_dispatcher);
+  };
+
+  detail::function_creation_hooks.emplace_back(
+      [wrapper_fn] (sqlite3 *db_handle) {
+        sqlite3_create_function(db_handle, fn_name, fn_info::num_args,
+                                SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr,
+                                wrapper_fn, nullptr, nullptr);
+      });
+}
+
 template <const auto &db_name>
 class Database {
  public:
@@ -183,6 +292,10 @@ class Database {
 
       if (post_connection_hook) {
         post_connection_hook(db_handle);
+      }
+
+      for (auto &function_creation_hook : detail::function_creation_hooks) {
+        function_creation_hook(db_handle);
       }
     }
 
@@ -413,7 +526,7 @@ class Database {
             return;
           }
         } else if constexpr (user_deserialize_fn<arg_t> != nullptr) {
-          constexpr auto *fn_ptr = +user_deserialize_fn<arg_t>;
+          auto *fn_ptr = +user_deserialize_fn<arg_t>;
           using fn_info = detail::get_fn_info<decltype(fn_ptr)>;
           using from_type = typename fn_info::template arg_type<0>;
           std::decay_t<from_type> from_arg;
