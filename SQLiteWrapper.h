@@ -471,15 +471,14 @@ class Database {
   // for later reuse.
   class QueryResult {
    public:
-    QueryResult() : stmt(nullptr) { }
+    QueryResult() = default;
 
     QueryResult &operator=(QueryResult &&other) {
       if (this != &other) {
-        stmt = other.stmt;
-        ret = other.ret;
-        first_invocation = other.first_invocation;
-        put_cb = other.put_cb;
-        other.stmt = nullptr;
+        std::swap(stmt, other.stmt);
+        std::swap(put_cb, other.put_cb);
+        std::swap(ret, other.ret);
+        std::swap(first_invocation, other.first_invocation);
       }
       return *this;
     }
@@ -571,9 +570,9 @@ class Database {
     QueryResult(const QueryResult &) = delete;
     QueryResult &operator=(const QueryResult &) = delete;
 
-    sqlite3_stmt *stmt;
-    PutCallbackType *put_cb;
-    int ret;
+    sqlite3_stmt *stmt = nullptr;
+    PutCallbackType *put_cb = nullptr;
+    int ret = -1;
     bool first_invocation = true;
 
     friend class Database<db_name>;
