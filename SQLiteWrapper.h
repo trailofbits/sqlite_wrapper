@@ -163,7 +163,6 @@ inline void createFunction(T fn) {
     throw error{SQLITE_ERROR};
   }
   using fn_info = detail::get_fn_info<decltype(+fn)>;
-  static void *object_to_delete;
   auto wrapper_fn = [] (sqlite3_context *context, int argc,
                         sqlite3_value **argv) {
     if (argc != fn_info::num_args) {
@@ -220,6 +219,7 @@ inline void createFunction(T fn) {
                            std::is_same_v<sqlite::blob, res_t>) {
         void (*destructor) (void *);
         res_t *saved_str;
+        static thread_local void *object_to_delete;
         if constexpr (std::is_lvalue_reference_v<decltype(res)>) {
           saved_str = &res;
           object_to_delete = nullptr;
