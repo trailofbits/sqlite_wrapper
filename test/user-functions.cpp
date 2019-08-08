@@ -50,6 +50,12 @@ int main(void) {
         return noncopyable_string{ss.str()};
       });
 
+  static std::string dummy_string = "dummy string";
+  static const char dummy_string_name[] = "dummy_string";
+  sqlite::createFunction<dummy_string_name>(
+      [] (void) -> std::string & {
+        return dummy_string;
+      });
 
   static const char create_table_query[] = "create table test (a, b)";
   db::query<create_table_query>();
@@ -74,4 +80,12 @@ int main(void) {
 
   static const char insert_noncopyable_query[] = "insert into test (a) values (?1)";
   db::query<insert_noncopyable_query>(noncopyable_string{"hello world"});
+
+  static const char select_dummy_string_query[] = "select dummy_string()";
+  fetch_row = db::query<select_dummy_string_query>();
+  std::string str2;
+  while (fetch_row(str2)) {
+    ;
+  }
+  assert(dummy_string == "dummy string");
 }

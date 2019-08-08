@@ -218,14 +218,22 @@ inline void createFunction(T fn) {
         sqlite3_result_blob(context, &res[0], res.size(), SQLITE_STATIC);
       } else if constexpr (std::is_same_v<std::string, res_t> ||
                            std::is_same_v<sqlite::blob, res_t>) {
-        auto saved_str = new res_t(std::move(res));
-        object_to_delete = saved_str;
-        auto destructor = [] (void *bytes) {
-          auto str_to_delete = static_cast<res_t *>(object_to_delete);
-          assert(bytes == str_to_delete->data());
-          delete str_to_delete;
-          str_to_delete = nullptr;
-        };
+        void (*destructor) (void *);
+        res_t *saved_str;
+        if constexpr (std::is_lvalue_reference_v<decltype(res)>) {
+          saved_str = &res;
+          object_to_delete = nullptr;
+          destructor = SQLITE_STATIC;
+        } else {
+          saved_str = new res_t(std::move(res));
+          object_to_delete = saved_str;
+          destructor = [] (void *bytes) {
+            auto str_to_delete = static_cast<res_t *>(object_to_delete);
+            assert(bytes == str_to_delete->data());
+            delete str_to_delete;
+            str_to_delete = nullptr;
+          };
+        }
         if constexpr (std::is_same_v<std::string, res_t>) {
           sqlite3_result_text(context, saved_str->data(), saved_str->size(),
                               destructor);
