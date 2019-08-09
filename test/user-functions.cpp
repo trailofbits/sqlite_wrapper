@@ -85,7 +85,7 @@ int main(void) {
   while (fetch_row(x, str, noncopy_str)) {
     assert(x == 5);
     assert(str == R"("\"hello world\"")");
-    assert(noncopy_str.get_str() == R"("\"hello world\"""hello world")");
+    assert(noncopy_str == R"("\"hello world\"""hello world")");
   }
 
   static const char insert_noncopyable_query[] = "insert into test (a) values (?1)";
