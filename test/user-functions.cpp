@@ -76,7 +76,7 @@ int main(void) {
 
   static const char select_query[]
     = R"(select increment(increment(a)), quote(quote(b)),
-                quote_noncopy(quote_noncopy(b))
+                quote_noncopy(quote_noncopy(b)) || quote(b)
          from test where a = ?1)";
   auto fetch_row = db::query<select_query>(3);
   int x;
@@ -85,7 +85,7 @@ int main(void) {
   while (fetch_row(x, str, noncopy_str)) {
     assert(x == 5);
     assert(str == R"("\"hello world\"")");
-    assert(noncopy_str.str == R"("\"hello world\"")");
+    assert(noncopy_str.get_str() == R"("\"hello world\"""hello world")");
   }
 
   static const char insert_noncopyable_query[] = "insert into test (a) values (?1)";

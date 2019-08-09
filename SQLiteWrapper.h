@@ -26,7 +26,7 @@
 #include <vector>
 #include <cstring>
 #include <functional>
-#include <cassert>
+#include <unordered_map>
 
 namespace sqlite {
 
@@ -219,18 +219,20 @@ inline void createFunction(T fn) {
                            std::is_same_v<sqlite::blob, res_t>) {
         void (*destructor) (void *);
         res_t *saved_str;
-        static thread_local res_t *to_delete;
         if constexpr (std::is_lvalue_reference_v<decltype(res)>) {
           saved_str = &res;
-          to_delete = nullptr;
           destructor = SQLITE_STATIC;
         } else {
+          static thread_local std::unordered_map<char *, res_t *> deletion_map;
           saved_str = new res_t(std::move(res));
-          to_delete = saved_str;
+          deletion_map.insert({saved_str->data(), saved_str});
           destructor = [] (void *bytes) {
-            assert(bytes == to_delete->data());
-            delete to_delete;
-            to_delete = nullptr;
+            auto it = deletion_map.find(static_cast<char *>(bytes));
+            if (it == deletion_map.end()) {
+              throw;
+            }
+            delete it->second;
+            deletion_map.erase(it);
           };
         }
         if constexpr (std::is_same_v<std::string, res_t>) {
