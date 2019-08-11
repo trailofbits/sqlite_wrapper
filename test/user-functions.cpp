@@ -1,6 +1,7 @@
 #include "SQLiteWrapper.h"
 #include <sstream>
 #include <iomanip>
+#include <cassert>
 
 static const char db_name[] = ":memory:";
 using db = sqlite::Database<db_name>;
@@ -85,7 +86,7 @@ int main(void) {
   while (fetch_row(x, str, noncopy_str)) {
     assert(x == 5);
     assert(str == R"("\"hello world\"")");
-    assert(noncopy_str == R"("\"hello world\"""hello world")");
+    assert(noncopy_str.str == R"("\"hello world\"""hello world")");
   }
 
   static const char insert_noncopyable_query[] = "insert into test (a) values (?1)";
