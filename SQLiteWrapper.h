@@ -579,6 +579,55 @@ class Database {
     friend class Database<db_name>;
   };
 
+  // A TransactionGuard object starts a SQLite transaction when constructed,
+  // and when destructed either commits or rolls back the transaction,
+  // depending on whether the object is being destroyed as a result of stack
+  // unwinding caused by an uncaught exception.
+  class TransactionGuard {
+   public:
+    TransactionGuard() {
+      beginTransaction();
+      transaction_active = true;
+    }
+
+    ~TransactionGuard() {
+      if (!transaction_active)
+        return;
+      if (std::uncaught_exceptions() == uncaught_exception_count) {
+        commit();
+      } else {
+        rollback();
+      }
+    }
+
+    void rollback() {
+      if (!transaction_active) {
+        throw error{SQLITE_ERROR};
+      }
+      rollbackTransaction();
+      transaction_active = false;
+    }
+
+    void commit() {
+      if (!transaction_active) {
+        throw error{SQLITE_ERROR};
+      }
+      commitTransaction();
+      transaction_active = false;
+    }
+
+    TransactionGuard(const TransactionGuard &) = delete;
+    TransactionGuard &operator=(const TransactionGuard &) = delete;
+
+   private:
+    const int uncaught_exception_count = std::uncaught_exceptions();
+    bool transaction_active;
+  };
+
+  static auto transactionGuard(void) {
+    return TransactionGuard();
+  }
+
   // Begin a SQLite transaction.
   static void beginTransaction(void) {
     static const char begin_transaction_query[] = "begin transaction";
@@ -586,9 +635,15 @@ class Database {
   }
 
   // Commit the active SQLite transaction.
-  static void commit(void) {
+  static void commitTransaction(void) {
     static const char commit_transaction_query[] = "commit transaction";
     query<commit_transaction_query>();
+  }
+
+  // Roll back the active SQLite transaction.
+  static void rollbackTransaction(void) {
+    static const char rollback_transaction_query[] = "rollback transaction";
+    query<rollback_transaction_query>();
   }
 };
 

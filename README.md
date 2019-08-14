@@ -104,6 +104,27 @@ db::post_connection_hook = [] (sqlite3 *db_handle) {
 The `post_connection_hook` is called immediately after a connection is
 successfully made.
 
+### ... work with transactions?
+Use the `TransactionGuard` class as an exception-safe wrapper for creating,
+committing, and rolling back an SQLite transaction:
+```C++
+{
+  db::TransactionGuard txn; // or auto txn = db::transactionGuard();
+  db::query<insert_query>();
+  foo(); // if foo throws, then the transaction will be rolled back.
+  auto fetch_row = db::query<select_query>();
+  if (fetch_row.resultCode() != SQLITE_ROW) {
+    txn.rollback();
+  }
+}
+```
+If upon destruction the transaction is still active, the destructor of the
+`TransactionGuard` object will either commit or roll back the transaction,
+depending on whether an uncaught exception was thrown in the containing scope.
+
+There's also the methods `db::beginTransaction()`, `db::commitTransaction()`
+and `db::rollbackTransaction()` for manual, non-RAII-based transaction
+handling.
 
 ### ... use a dynamically-generated query string?
 

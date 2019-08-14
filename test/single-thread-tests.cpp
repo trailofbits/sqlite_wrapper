@@ -24,11 +24,43 @@ void test_blob_and_blob_view(void) {
   }
 }
 
+void test_transactions(void) {
+  try {
+    db::TransactionGuard txn;
+
+    db::query<insert_query>(1, sqlite::blob{"hello"});
+    throw std::exception();
+    db::query<insert_query>(2, sqlite::blob_view{"goodbye"});
+  } catch (const std::exception &e) { }
+
+  auto fetch_row = db::query<select_query>(1);
+  assert(fetch_row.resultCode() == SQLITE_DONE);
+
+  fetch_row = db::query<select_query>(2);
+  assert(fetch_row.resultCode() == SQLITE_DONE);
+
+  try {
+    db::TransactionGuard txn;
+
+    db::query<insert_query>(1, sqlite::blob{"hello"});
+    db::query<insert_query>(2, sqlite::blob_view{"goodbye"});
+  } catch (const std::exception &e) { }
+
+  fetch_row = db::query<select_query>(1);
+  assert(fetch_row.resultCode() == SQLITE_ROW);
+
+  fetch_row = db::query<select_query>(2);
+  assert(fetch_row.resultCode() == SQLITE_ROW);
+}
+
 int main(void)
 {
   static const char create_table_query[] = "create table test (a, b)";
   db::query<create_table_query>();
 
   test_blob_and_blob_view();
+  db::query<clear_table_query>();
+
+  test_transactions();
   db::query<clear_table_query>();
 }
