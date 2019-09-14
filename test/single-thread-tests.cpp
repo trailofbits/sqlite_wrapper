@@ -1,4 +1,5 @@
 #include "SQLiteWrapper.h"
+#include <cassert>
 
 static const char db_name[] = ":memory:";
 using db = sqlite::Database<db_name>;
