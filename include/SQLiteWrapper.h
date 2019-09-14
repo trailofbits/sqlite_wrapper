@@ -32,6 +32,9 @@ namespace sqlite {
 
 namespace detail {
 
+template <typename T>
+inline bool dependent_false = false;
+
 // Given a concrete function type T:
 //   get_fn_info<T>::ret_type is the return type
 //   get_fn_info<T>::num_args is the number of arguments to the function
@@ -39,7 +42,7 @@ namespace detail {
 
 template <typename T>
 struct get_fn_info {
-  static_assert(!std::is_same_v<T,T>);
+  static_assert(dependent_false<T>);
 };
 
 template <typename R, typename... As>
@@ -144,7 +147,7 @@ inline std::vector<std::function<void(sqlite3 *)>> function_creation_hooks;
 
 template <typename T>
 struct decay_tuple_args {
-  static_assert(!std::is_same_v<T, T>);
+  static_assert(dependent_false<T>);
 };
 
 template <typename... Ts>
@@ -198,7 +201,7 @@ inline void createFunction(T fn) {
         arg = fn_ptr(std::move(from_arg));
         return;
       } else {
-        static_assert(!std::is_same_v<arg_t, arg_t>);
+        static_assert(detail::dependent_false<arg_t>);
       }
       idx++;
     };
@@ -247,7 +250,7 @@ inline void createFunction(T fn) {
       } else if constexpr (user_serialize_fn<res_t> != nullptr) {
         self(user_serialize_fn<res_t>(std::forward<decltype(res)>(res)), self);
       } else {
-        static_assert(!std::is_same_v<res_t, res_t>);
+        static_assert(detail::dependent_false<res_t>);
       }
     };
     result_dispatcher(std::apply(saved_fn, std::move(arg_tuple)),
@@ -453,7 +456,7 @@ class Database {
             sqlite3_bind_null(stmt, idx);
           }
         } else {
-          static_assert(!std::is_same_v<arg_t, arg_t>);
+          static_assert(detail::dependent_false<arg_t>);
         }
         idx++;
 
@@ -549,7 +552,7 @@ class Database {
           arg = fn_ptr(std::move(from_arg));
           return;
         } else {
-          static_assert(!std::is_same_v<arg_t, arg_t>);
+          static_assert(detail::dependent_false<arg_t>);
         }
         idx++;
 
